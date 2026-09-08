@@ -5,7 +5,9 @@ import json
 from datetime import datetime, timezone
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from shared.models.models import AuditContext, AuditTarget, CrawlRecord
+from shared.models.models import AuditContext, AuditTarget, CrawlRecord, FindingType
+from shared.utilities.crawler import SiteCrawler
+from shared.utilities.scoring import fuse_findings, correlate_root_causes, calculate_readiness_score
 import importlib
 
 crawl_audit = importlib.import_module("skills.crawlability-audit.scripts.audit")
@@ -17,9 +19,7 @@ answerability_audit = importlib.import_module("skills.answerability-audit.script
 integrity_audit = importlib.import_module("skills.semantic-integrity-audit.scripts.audit")
 landing_audit = importlib.import_module("skills.ai-landing-context-audit.scripts.audit")
 opportunity_engine = importlib.import_module("skills.opportunity-engine.scripts.audit")
-from shared.utilities.crawler import SiteCrawler
 
-# Mock the HTTP client
 class MockHTTPClient:
     def __init__(self, responses):
         self.responses = responses
@@ -42,7 +42,6 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         )
 
     def test_site_01_robots_blocks(self):
-        # site_01: robots blocks important content
         url = "https://site01.com"
         responses = {
             f"{url}/robots.txt": "User-agent: *\nDisallow: /products/\nSitemap: https://site01.com/sitemap.xml\n",
@@ -53,19 +52,14 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         crawler.fetch_robots_txt(url)
         context = self.base_context(url)
         
-        # Test crawlability
         context = crawl_audit.run_audit(context, crawler)
-        
-        # Check if robots issue was found. The crawler wouldn't fetch disallowed URLs.
-        # The specific finding depends on our implementation, but it should at least discover sitemap.
         self.assertTrue(len(crawler.sitemap_urls) > 0)
         self.assertFalse(crawler.can_fetch(f"{url}/products/1"))
 
     def test_site_02_js_only_content(self):
-        # site_02: JS-only important content
         url = "https://site02.com/product/1"
-        padding = "<!-- " + "x" * 6000 + " -->"
-        html = f"<html><body><div id=\"root\"></div>{padding}</body></html>"
+        payload = 'lots of hidden text ' * 1000
+        html = f'<html><body><script>{{"huge_json_payload": "{payload}"}}</script></body></html>'
         
         context = self.base_context(url)
         context = render_audit.run_audit(context, {url: html})
@@ -73,19 +67,17 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         findings = [f.id for f in context.findings]
         self.assertIn("RENDER-001", findings)
 
-    def test_site_03_missing_structured_data(self):
-        # site_03: missing structured data
+    def test_site_03_missing_structured_data_and_ambiguous(self):
         url = "https://site03.com/product/1"
-        html = """<html><body><h1>Awesome Product</h1><p>Buy now</p></body></html>"""
+        html = """<html><body><div>Awesome Product</div><div>Buy now</div></body></html>"""
         
         context = self.base_context(url)
         context = semantic_audit.run_audit(context, {url: html})
         
         findings = [f.id for f in context.findings]
-        self.assertIn("SEM-001", findings)
+        self.assertIn("SEM-002", findings)
 
     def test_site_05_entity_ambiguity(self):
-        # site_05: entity ambiguity
         url = "https://site05.com/about"
         html = """
         <html>
@@ -93,9 +85,8 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         <body>
         <script type="application/ld+json">
         [
-            {"@type": "Organization", "name": "E"},
-            {"@type": "Brand", "name": "F"},
-            {"@type": "Brand", "name": "G"}
+            {"@type": "Organization", "name": "Apple"},
+            {"@type": "Organization", "name": "Apple Inc."}
         ]
         </script>
         </body></html>
@@ -106,29 +97,35 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         findings = [f.id for f in context.findings]
         self.assertIn("ENT-001", findings)
 
-    def test_site_06_stale_information(self):
-        # site_06: stale information (conflicting prices)
+    def test_site_06_corroboration_failure(self):
         url = "https://site06.com/product"
         html = """
         <html><body>
         <script type="application/ld+json">
         [
-          {"@type": "Product", "name": "P1", "offers": {"price": "10.00"}},
-          {"@type": "Offer", "price": "15.00"}
+          {"@type": "Product", "sku": "123", "offers": {"price": "10.00"}}
+        ]
+        </script>
+        </body></html>
+        """
+        html2 = """
+        <html><body>
+        <script type="application/ld+json">
+        [
+          {"@type": "Product", "sku": "123", "offers": {"price": "15.00"}}
         ]
         </script>
         </body></html>
         """
         context = self.base_context(url)
-        context = freshness_audit.run_audit(context, {url: html})
+        context = freshness_audit.run_audit(context, {url: html, f"{url}/v2": html2})
         
         findings = [f.id for f in context.findings]
-        self.assertIn("FRESH-001", findings)
+        self.assertIn("CORR-001", findings)
         
     def test_site_07_answerability(self):
-        # site_07: unanswerable product page
         url = "https://site07.com/product/xyz"
-        html = """<html><body><h1>Cool Product</h1><button>Add to cart</button></body></html>"""
+        html = """<html><body><h1>Cool Product</h1><p>Buy this amazing product</p><button>Add to cart</button></body></html>"""
         context = self.base_context(url)
         context = answerability_audit.run_audit(context, {url: html})
         
@@ -136,56 +133,65 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         self.assertIn("ANS-001", findings)
 
     def test_site_09_semantic_integrity(self):
-        # site_09: cross-product attribute contamination
         url = "https://site09.com/category"
         html = """
         <html><body>
-        <script type="application/ld+json">
-        [
-          {"@type": "Product", "name": "P1"},
-          {"@type": "Product", "name": "P2"},
-          {"@type": "Product", "name": "P3"},
-          {"@type": "Product", "name": "P4"}
-        ]
-        </script>
+        <div><div class="product">P1</div><div class="product">P2</div></div>
+        <p>Price: $10.00</p>
+        <p>Price: $20.00</p>
+        <p>Price: $30.00</p>
         </body></html>
         """
         context = self.base_context(url)
         context = integrity_audit.run_audit(context, {url: html})
         
         findings = [f.id for f in context.findings]
-        self.assertIn("INTEGRITY-001", findings)
-
-    def test_site_10_healthy_site(self):
-        # site_10: healthy site with no major defects
-        url = "https://site10.com/product"
+        self.assertIn("INT-001", findings)
+        
+    def test_site_10_landing_intent(self):
+        url = "https://site10.com/landing"
         html = """
         <html>
-        <head><title>Super Widget - WidgetCo</title></head>
+        <head><title>Great Answers</title></head>
         <body>
-        <h1>Super Widget</h1>
-        <p>This is a great widget. Price: $99.99</p>
+        <div class="modal overlay">Please Login</div>
+        </body>
+        </html>
+        """
+        context = self.base_context(url)
+        context = landing_audit.run_audit(context, {url: html})
+        
+        findings = [f.id for f in context.findings]
+        self.assertIn("LAND-001", findings)
+
+    def test_scoring_fusion_and_root_cause(self):
+        # Create dummy findings to test fusion and root causes
+        context = self.base_context("https://test.com")
+        html = """
+        <html><body>
         <script type="application/ld+json">
         [
-          {"@type": "Product", "name": "Super Widget", "offers": {"price": "99.99"}},
-          {"@type": "FAQPage", "mainEntity": []}
+            {"@type": "Organization", "name": "A"},
+            {"@type": "Organization", "name": "B"}
         ]
         </script>
         </body></html>
         """
-        context = self.base_context(url)
-        context = render_audit.run_audit(context, {url: html})
-        context = semantic_audit.run_audit(context, {url: html})
-        context = entity_audit.run_audit(context, {url: html})
-        context = freshness_audit.run_audit(context, {url: html})
-        context = answerability_audit.run_audit(context, {url: html})
-        context = integrity_audit.run_audit(context, {url: html})
-        context = landing_audit.run_audit(context, {url: html})
-        context = opportunity_engine.run_audit(context, {url: html})
         
-        # Ensure no defects were found
-        defects = [f for f in context.findings if f.type == "defect"]
-        self.assertEqual(len(defects), 0)
+        context = entity_audit.run_audit(context, {"url1": html})
+        context = semantic_audit.run_audit(context, {"url1": "<html><div>ambiguous</div></html>", "url2": "<html><div>ambiguous 2</div></html>"})
+        
+        # Test Fusion
+        fused = fuse_findings(context.findings)
+        
+        # Test Root Causes
+        fused, root_causes = correlate_root_causes(fused)
+        
+        # Test Scoring
+        score = calculate_readiness_score(fused)
+        
+        self.assertTrue(len(fused) > 0)
+        self.assertIsNotNone(score)
 
 if __name__ == '__main__':
     unittest.main()

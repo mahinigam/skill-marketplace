@@ -1,12 +1,34 @@
 import urllib.robotparser
 from urllib.parse import urlparse, urljoin
 import xml.etree.ElementTree as ET
-from typing import List, Optional
+from typing import List, Optional, Dict, Set
 from bs4 import BeautifulSoup
 import logging
 from .http_client import SafeHTTPClient
 
 logger = logging.getLogger("crawler")
+
+class PageCandidate:
+    def __init__(self, url: str):
+        self.url = url
+        self.inbound_links = 0
+        self.sitemap_signal = 0
+        self.crawl_depth = 999
+        self.navigation_score = 0
+        self.commercial_relevance = 0
+        
+    @property
+    def importance_score(self) -> float:
+        # Depth penalty (closer to root is better)
+        depth_score = max(0, 5 - self.crawl_depth)
+        
+        return (
+            (self.navigation_score * 3.0) +
+            (self.inbound_links * 0.5) +
+            (self.sitemap_signal * 2.0) +
+            depth_score +
+            (self.commercial_relevance * 2.0)
+        )
 
 class SiteCrawler:
     def __init__(self, client: SafeHTTPClient):
@@ -24,7 +46,6 @@ class SiteCrawler:
             self.rp.parse(content.splitlines())
             self.robots_content = content
             
-            # Extract sitemaps
             for line in content.splitlines():
                 if line.lower().startswith("sitemap:"):
                     self.sitemap_urls.append(line.split(":", 1)[1].strip())
@@ -40,16 +61,13 @@ class SiteCrawler:
     def fetch_sitemap(self, url: str) -> List[str]:
         urls = []
         if not self.can_fetch(url):
-            logger.info(f"Blocked by robots.txt: {url}")
             return urls
             
         content, _, err = self.client.get(url)
         if not err and content:
             try:
-                # Handle standard sitemap XML
                 if "<urlset" in content or "<sitemapindex" in content:
                     root = ET.fromstring(content)
-                    # Namespaces can be tricky, strip them for simple finding
                     for elem in root.iter():
                         if '}' in elem.tag:
                             elem.tag = elem.tag.split('}', 1)[1]
@@ -63,46 +81,75 @@ class SiteCrawler:
                             if loc.text:
                                 urls.append(loc.text.strip())
             except ET.ParseError:
-                logger.warning(f"Failed to parse sitemap: {url}")
+                pass
         return urls
+
+    def _assess_commercial_relevance(self, url: str) -> int:
+        keywords = ["product", "item", "pricing", "features", "enterprise", "about", "company", "docs", "category"]
+        lower_url = url.lower()
+        for kw in keywords:
+            if kw in lower_url:
+                return 1
+        return 0
 
     def discover_pages(self, start_url: str, max_pages: int = 50) -> List[str]:
         """
-        Discovers pages starting from start_url. First checks sitemap, 
-        then falls back to basic breadth-first crawling if needed.
-        Returns a sampled list of URLs.
+        Discovers pages using a PageImportance model.
         """
         self.fetch_robots_txt(start_url)
-        discovered = set()
+        candidates: Dict[str, PageCandidate] = {}
         
-        # 1. Try sitemaps from robots.txt
+        def get_or_create(u: str) -> PageCandidate:
+            if u not in candidates:
+                candidates[u] = PageCandidate(u)
+                candidates[u].commercial_relevance = self._assess_commercial_relevance(u)
+            return candidates[u]
+
+        # 1. Sitemaps
         for sm in self.sitemap_urls:
-            discovered.update(self.fetch_sitemap(sm))
-            
-        # 2. Try default sitemap location if none found
+            for u in self.fetch_sitemap(sm):
+                get_or_create(u).sitemap_signal = 1
+                
         if not self.sitemap_urls:
             parsed_url = urlparse(start_url)
             default_sm = f"{parsed_url.scheme}://{parsed_url.netloc}/sitemap.xml"
-            discovered.update(self.fetch_sitemap(default_sm))
-            
-        # 3. Always include start URL
-        discovered.add(start_url)
+            for u in self.fetch_sitemap(default_sm):
+                get_or_create(u).sitemap_signal = 1
+
+        # 2. Shallow crawl for nav links & inbound tracking
+        get_or_create(start_url).crawl_depth = 0
         
-        # 4. If we have very few pages, do a shallow crawl from start_url
-        if len(discovered) < 5:
-            content, _, err = self.client.get(start_url)
-            if not err and content:
-                soup = BeautifulSoup(content, 'html.parser')
-                for a in soup.find_all('a', href=True):
-                    href = a['href']
-                    full_url = urljoin(start_url, href)
-                    # Stay on domain
-                    if urlparse(full_url).netloc == urlparse(start_url).netloc:
-                        if self.can_fetch(full_url):
-                            discovered.add(full_url)
-                            if len(discovered) >= max_pages:
-                                break
-                                
-        # Sample pages (prioritize shorter URLs as they are often more important/category pages)
-        sorted_urls = sorted(list(discovered), key=len)
-        return sorted_urls[:max_pages]
+        content, _, err = self.client.get(start_url)
+        if not err and content:
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            # Find nav links
+            nav_tags = soup.find_all(['nav', 'header', 'footer'])
+            nav_links = set()
+            for tag in nav_tags:
+                for a in tag.find_all('a', href=True):
+                    full = urljoin(start_url, a['href'])
+                    if urlparse(full).netloc == urlparse(start_url).netloc:
+                        nav_links.add(full)
+            
+            # All links
+            for a in soup.find_all('a', href=True):
+                full_url = urljoin(start_url, a['href'])
+                if urlparse(full_url).netloc == urlparse(start_url).netloc:
+                    if self.can_fetch(full_url):
+                        c = get_or_create(full_url)
+                        c.inbound_links += 1
+                        if c.crawl_depth > 1:
+                            c.crawl_depth = 1
+                        if full_url in nav_links:
+                            c.navigation_score = 1
+        
+        # Sort by importance and return top
+        sorted_candidates = sorted(
+            candidates.values(), 
+            key=lambda c: c.importance_score, 
+            reverse=True
+        )
+        
+        # Prioritize the most important URLs up to max_pages
+        return [c.url for c in sorted_candidates[:max_pages]]

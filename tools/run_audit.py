@@ -1,10 +1,14 @@
-import sys
-import os
 import argparse
 import json
+import os
+import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from skills.audit_orchestrator.scripts.orchestrate import run_orchestrator, generate_markdown_report
+import importlib
+
+orchestrate = importlib.import_module("skills.audit-orchestrator.scripts.orchestrate")
+run_orchestrator = orchestrate.run_orchestrator
+generate_markdown_report = orchestrate.generate_markdown_report
 
 def main():
     parser = argparse.ArgumentParser(description="Run the AI Readiness Audit")

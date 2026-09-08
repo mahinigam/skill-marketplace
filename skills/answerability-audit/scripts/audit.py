@@ -1,45 +1,78 @@
 import sys
 import os
 import re
+from typing import List, Dict
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation
+from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType
 from shared.utilities.extractors import extract_visible_text
+
+class SyntheticQuestion:
+    def __init__(self, text: str, intent: str, extractors: List[str]):
+        self.text = text
+        self.intent = intent
+        self.extractors = extractors
+
+def evaluate_answerability(html_text: str, questions: List[SyntheticQuestion]) -> float:
+    scores = []
+    for q in questions:
+        matches = 0
+        for regex in q.extractors:
+            matches += len(re.findall(regex, html_text, re.IGNORECASE))
+        
+        if matches == 1:
+            scores.append(1.0) # Unambiguous coverage
+        elif matches > 1:
+            scores.append(0.5) # Ambiguous coverage (multiple potential answers)
+        else:
+            scores.append(0.0) # No coverage
+            
+    return sum(scores) / len(scores) if scores else 1.0
 
 def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     findings = []
     
-    unanswerable_product_pages = []
+    product_questions = [
+        SyntheticQuestion("What is the price?", "price", [r'[\$\€\£\₹\¥]\s*\d+[\.,]?\d*', r'(?:usd|eur|gbp|inr|cad|aud)\s*\d+']),
+        SyntheticQuestion("Is it in stock?", "availability", [r'in stock', r'out of stock', r'available', r'sold out']),
+        SyntheticQuestion("What is the weight/size?", "dimensions", [r'\d+\s*(?:kg|lbs|oz|cm|mm|inches)'])
+    ]
+    
+    unanswerable_pages = []
     
     for url, html in html_cache.items():
-        text = extract_visible_text(html).lower()
+        text = extract_visible_text(html)
         
-        # Heuristic: if it looks like a product page (e.g. contains 'buy', 'cart', 'product')
-        # but has no numbers resembling a price, or lacks feature descriptions.
-        if 'product' in url.lower() or 'buy' in text or 'add to cart' in text:
-            # Check for price presence
-            has_price = bool(re.search(r'\$\d+|\d+\s*(usd|eur|gbp)', text))
-            if not has_price:
-                unanswerable_product_pages.append(url)
+        # Determine page type
+        if 'product' in url.lower() or 'buy' in text.lower() or 'add to cart' in text.lower():
+            score = evaluate_answerability(text, product_questions)
+            if score < 0.5:
+                unanswerable_pages.append((url, score))
                 
-    if unanswerable_product_pages:
+    if unanswerable_pages:
+        evidence = [EvidenceItem(
+            source_type="html", 
+            url=u[0], 
+            detail=f"Answerability score: {u[1]:.2f}. Failed to unambiguously answer synthesized product questions (price, availability, dimensions)."
+        ) for u in unanswerable_pages[:5]]
+        
         findings.append(Finding(
             id="ANS-001",
-            title="Product Pages Lack Clear Pricing/Specification Answers",
-            category="answerability",
-            type="defect",
+            title="Poor Unstructured Answerability for High-Intent Queries",
+            category="Engagement",
+            type=FindingType.DEFECT,
             severity="high",
             confidence=0.85,
-            affected_pages=unanswerable_product_pages[:5],
-            evidence=[EvidenceItem(source_type="html", url=u, detail="Appears to be a product page but lacks explicit price formatting visible to text extraction.") for u in unanswerable_product_pages[:5]],
-            mechanism="If an AI is asked 'How much is X?', it cannot confidently answer if the price is an image or hidden in un-parseable formats.",
-            ai_impact="AI will state it doesn't know the price or will drop the citation.",
+            affected_pages=[u[0] for u in unanswerable_pages],
+            evidence=evidence,
+            mechanism="AI systems extract answers from raw text. If the text lacks unambiguous factual indicators (e.g. standard currency, explicit stock status), the AI drops the citation.",
+            ai_impact="AI states it doesn't know the price or specifications, refusing to confidently recommend the product.",
             suggested_action=ActionRecommendation(
-                summary="Ensure product specifications and prices are in plain text.",
+                summary="Ensure facts can unambiguously answer common user questions.",
                 priority="P1",
-                implementation="Add explicit text blocks for price, specifications, and availability. Do not use images for text.",
-                verification="Run a text extraction tool and verify the price is clearly readable.",
-                effort="low",
+                implementation="Add explicit text blocks for price, stock, and specs. Avoid hiding facts in images or non-standard formats (e.g. 'Five thousand rupees' instead of '₹5,000').",
+                verification="Test if a generic LLM can extract price, weight, and stock status purely from the page's raw text.",
+                effort="medium",
                 expected_impact="high"
             )
         ))

@@ -1,48 +1,69 @@
 import sys
 import os
-from urllib.parse import urlparse
+from bs4 import BeautifulSoup
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation
+from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType
 from shared.utilities.extractors import extract_title, extract_visible_text
 
 def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     findings = []
     
-    generic_routing_pages = []
-    poor_context_pages = []
+    poor_citation_pages = []
     
     for url, html in html_cache.items():
-        title = extract_title(html) or ""
+        soup = BeautifulSoup(html, 'html.parser')
+        title = extract_title(html)
         text = extract_visible_text(html)
-        parsed = urlparse(url)
         
-        # Check for generic routing: deep URL but title/content looks like homepage
-        if len(parsed.path) > 1 and parsed.path != '/':
-            if "home" in title.lower() and len(text) < 500:
-                generic_routing_pages.append(url)
-                
-        # Check for poor context: Page lacks clear H1 or next steps (very crude heuristic)
-        if len(text) < 100:
-            poor_context_pages.append(url)
+        # Check Citation Destination Quality
+        # 1. Is there an immediate H1 that confirms the intent?
+        h1 = soup.find('h1')
+        has_h1 = h1 is not None and len(h1.get_text(strip=True)) > 2
+        
+        # 2. Are there aggressive popups/walls in the raw DOM? (e.g. fixed overlays)
+        has_wall = False
+        overlays = soup.find_all(lambda tag: tag.name == 'div' and tag.get('class') and any('modal' in c.lower() or 'popup' in c.lower() or 'overlay' in c.lower() for c in tag.get('class')))
+        if overlays:
+            has_wall = True
             
-    if generic_routing_pages:
+        # 3. Context continuity (Does the title match the H1?)
+        title_h1_mismatch = False
+        if title and h1:
+            title_words = set(title.lower().split())
+            h1_words = set(h1.get_text(strip=True).lower().split())
+            # If there's barely any overlap, it's a continuity break
+            if len(title_words.intersection(h1_words)) == 0:
+                title_h1_mismatch = True
+                
+        if not has_h1 or has_wall or title_h1_mismatch:
+            poor_citation_pages.append((url, not has_h1, has_wall, title_h1_mismatch))
+            
+    if poor_citation_pages:
+        evidence = []
+        for url, no_h1, wall, mismatch in poor_citation_pages[:5]:
+            issues = []
+            if no_h1: issues.append("Missing/Empty H1")
+            if wall: issues.append("Aggressive Overlay/Modal found in DOM")
+            if mismatch: issues.append("Title and H1 completely mismatch")
+            evidence.append(EvidenceItem(source_type="html", url=url, detail=", ".join(issues)))
+            
         findings.append(Finding(
-            id="LANDING-001",
-            title="Generic Routing / Context Discontinuity",
-            category="engagement",
-            type="defect",
+            id="LAND-001",
+            title="Poor Citation Destination Quality (Intent Continuity Break)",
+            category="Engagement",
+            type=FindingType.DEFECT,
             severity="high",
-            confidence=0.85,
-            affected_pages=generic_routing_pages[:5],
-            evidence=[EvidenceItem(source_type="html", url=u, detail="Deep link resolves to generic homepage-like content.") for u in generic_routing_pages[:5]],
-            mechanism="When users click an AI citation expecting specific facts, landing on a generic page breaks context and increases bounce rate.",
-            user_impact="High recovery cost to find the referenced information.",
+            confidence=0.9,
+            affected_pages=[u[0] for u in poor_citation_pages],
+            evidence=evidence,
+            mechanism="When a user clicks an AI citation link, they expect immediate corroboration of the AI's answer. Missing H1s, mismatched titles, or immediate popups break intent continuity, causing high bounce rates.",
+            user_impact="User abandons the site immediately because the destination doesn't clearly match the AI's promise.",
             suggested_action=ActionRecommendation(
-                summary="Ensure deep links resolve to specific, relevant content.",
+                summary="Ensure clear intent continuity upon landing.",
                 priority="P1",
-                implementation="Fix redirects that push deep URLs to the homepage. Ensure canonical URLs point to the specific content.",
-                verification="Visit the URL and verify it shows the expected specific content.",
+                implementation="Align the <title> and <h1>. Ensure the primary answer/fact is visible immediately without dismissing modals.",
+                verification="Check that the H1 clearly reflects the page topic and no blocking modals render on initial load.",
                 effort="low",
                 expected_impact="high"
             )

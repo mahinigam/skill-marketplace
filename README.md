@@ -9,7 +9,7 @@ The core philosophy of this marketplace is:
 
 ## Skill Architecture
 
-The marketplace consists of 9 distinct skills coordinated by a single entrypoint:
+The marketplace consists of 10 distinct skills coordinated by a single entrypoint:
 
 1. **`audit-orchestrator`** (ENTRYPOINT): Orchestrates the entire audit, merges findings, deduplicates root causes, calculates readiness scores, and generates the final JSON and Markdown reports.
 2. **`crawlability-audit`**: Checks robots.txt, sitemaps, HTTP errors, and basic page discoverability.

@@ -1,87 +1,105 @@
 import sys
 import os
+import json
 import re
-from typing import List
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation
-from shared.utilities.extractors import extract_json_ld
+from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType
+from shared.utilities.extractors import extract_json_ld, extract_visible_text
 
 def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     findings = []
     
-    missing_dates_pages = []
-    extracted_prices = {} # product_url: list of prices found
+    missing_freshness = []
+    corroboration_failures = []
+    
+    # Internal Corroboration Matrix: We track facts stated across multiple pages.
+    # If Page A says "Price: $50" and Page B says "Price: $60" for the same product, it fails corroboration.
+    fact_matrix = {}
     
     for url, html in html_cache.items():
-        # Check structured data for dates
-        json_ld = extract_json_ld(html)
-        has_date = False
-        for block in json_ld:
-            if block.get('datePublished') or block.get('dateModified'):
-                has_date = True
-            
-            # Extract prices for contradiction check
-            if block.get('@type') in ['Product', 'Offer']:
-                price = None
-                if 'offers' in block:
-                    offers = block['offers']
-                    if isinstance(offers, dict):
-                        price = offers.get('price')
-                    elif isinstance(offers, list) and len(offers) > 0:
-                        price = offers[0].get('price')
-                elif 'price' in block:
-                    price = block.get('price')
+        json_blocks = extract_json_ld(html)
+        has_freshness = False
+        
+        for block in json_blocks:
+            # Check for freshness
+            if 'dateModified' in block or 'datePublished' in block:
+                has_freshness = True
+                
+            # Populate fact matrix (e.g. price per SKU)
+            if 'sku' in block and 'offers' in block:
+                sku = str(block['sku'])
+                offers = block['offers']
+                if isinstance(offers, dict) and 'price' in offers:
+                    price = str(offers['price'])
+                    if sku not in fact_matrix:
+                        fact_matrix[sku] = []
+                    fact_matrix[sku].append((url, price))
                     
-                if price:
-                    extracted_prices.setdefault(url, []).append(str(price))
-                    
-        if not has_date:
-            missing_dates_pages.append(url)
+        # Check visible text for dates if JSON-LD missing
+        if not has_freshness:
+            text = extract_visible_text(html)
+            if re.search(r'\b(20\d{2}[-/]\d{2}[-/]\d{2})\b', text):
+                has_freshness = True
+                
+        if not has_freshness:
+            missing_freshness.append(url)
             
-    # Contradiction check on prices within the same page (e.g. schema says one thing)
-    contradicting_pages = []
-    for url, prices in extracted_prices.items():
-        if len(set(prices)) > 1:
-            contradicting_pages.append(url)
-            
-    if contradicting_pages:
+    # Analyze Fact Matrix for Corroboration Failures
+    for sku, claims in fact_matrix.items():
+        unique_prices = set([c[1] for c in claims])
+        if len(unique_prices) > 1:
+            # Conflicting facts found internally!
+            corroboration_failures.append((sku, claims))
+
+    if missing_freshness:
         findings.append(Finding(
             id="FRESH-001",
-            title="Conflicting Facts (Price) on Page",
-            category="freshness",
-            type="defect",
-            severity="critical",
-            confidence=1.0,
-            affected_pages=contradicting_pages[:5],
-            evidence=[EvidenceItem(source_type="json_ld", url=u, detail=f"Found conflicting prices: {extracted_prices[u]}") for u in contradicting_pages[:5]],
-            mechanism="When facts conflict on the same page, AI assistants lose confidence and may hallucinate or refuse to answer.",
-            suggested_action=ActionRecommendation(
-                summary="Ensure all structured data blocks report the same price.",
-                priority="P0",
-                implementation="Review the templates generating JSON-LD and ensure they draw from a single source of truth for pricing.",
-                verification="Check that extracted price facts are identical.",
-                effort="low",
-                expected_impact="high"
-            )
-        ))
-        
-    if len(missing_dates_pages) > len(html_cache) / 2 and len(html_cache) > 0:
-        findings.append(Finding(
-            id="FRESH-002",
             title="Missing Freshness Signals",
-            category="freshness",
-            type="observation",
+            category="Discoverability",
+            type=FindingType.DEFECT,
             severity="low",
             confidence=0.9,
-            evidence=[EvidenceItem(source_type="html", url=context.target.url, detail="Majority of pages lack dateModified or datePublished signals.")],
+            affected_pages=missing_freshness[:5],
+            evidence=[EvidenceItem(source_type="html", url=u, detail="Lacks dateModified or datePublished in structured data, and no visible dates found.") for u in missing_freshness[:5]],
+            mechanism="AI models prioritize 'fresh' data for volatile facts (pricing, events). Without explicit dates, older indexed data may be considered stale and dropped.",
+            ai_impact="Model may refuse to answer queries requiring current information.",
             suggested_action=ActionRecommendation(
                 summary="Add dateModified to structured data.",
                 priority="P3",
                 implementation="Include dateModified in WebPage or Article schema so AIs know the content is up to date.",
                 verification="Validate JSON-LD contains dateModified.",
-                effort="medium",
+                effort="low",
                 expected_impact="low"
+            )
+        ))
+        
+    if corroboration_failures:
+        evidence = []
+        affected = []
+        for sku, claims in corroboration_failures[:3]:
+            detail = f"SKU {sku} has conflicting prices: " + ", ".join([f"{c[1]} on {c[0]}" for c in claims])
+            affected.extend([c[0] for c in claims])
+            evidence.append(EvidenceItem(source_type="json-ld", url=claims[0][0], detail=detail))
+            
+        findings.append(Finding(
+            id="CORR-001",
+            title="Internal Fact Corroboration Failure",
+            category="Semantics",
+            type=FindingType.DEFECT,
+            severity="high",
+            confidence=0.98,
+            affected_pages=list(set(affected))[:5],
+            evidence=evidence,
+            mechanism="AI systems cross-reference facts (RAG). If the site internally contradicts itself (e.g. product page vs category page pricing), confidence plummets.",
+            ai_impact="Citation dropped due to internal contradiction / hallucination risk.",
+            suggested_action=ActionRecommendation(
+                summary="Ensure data consistency across all views.",
+                priority="P1",
+                implementation="Use a single source of truth for pricing/attributes across category lists and product detail pages.",
+                verification="Audit JSON-LD across lists vs details for the same SKU.",
+                effort="medium",
+                expected_impact="high"
             )
         ))
 

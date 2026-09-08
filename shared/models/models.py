@@ -1,77 +1,80 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 from datetime import datetime
+from enum import Enum
 
-class EntityRecord(BaseModel):
-    id: str
-    name: str
-    type: str
-    aliases: List[str] = []
-    canonical_url: Optional[str] = None
-    properties: Dict[str, Any] = {}
+class FindingType(str, Enum):
+    DEFECT = "defect"
+    RISK = "risk"
+    OPPORTUNITY = "opportunity"
+    OBSERVATION = "observation"
 
-class FactRecord(BaseModel):
-    id: str
-    subject_entity_id: str
-    attribute: str
-    value: Any
-    confidence: float
-    source_url: str
-
-class ClaimRecord(BaseModel):
-    id: str
-    fact_id: str
-    claim_text: str
-    context: str
-
-class SourceRecord(BaseModel):
+class Source(BaseModel):
     url: str
-    type: str # "internal", "external_profile", "external_article"
-    last_modified: Optional[datetime] = None
-
-class Signal(BaseModel):
-    id: str
-    type: str
-    source_url: str
-    value: Any
-    description: str
-
+    source_type: str # html, json-ld, robots, sitemap, external
+    
 class EvidenceItem(BaseModel):
-    source_type: str # e.g. "html", "rendered_dom", "json_ld", "http_headers"
+    source_type: str
     url: str
     detail: str
     observed_value: Optional[str] = None
     expected_value: Optional[str] = None
+    
+class Entity(BaseModel):
+    canonical_name: str
+    aliases: List[str] = []
+    sameAs: List[str] = []
+    type: str = "Organization" # Organization, Product, Brand, etc.
+
+class Fact(BaseModel):
+    subject: str
+    predicate: str
+    object_value: str
+    sources: List[Source] = []
+
+class Claim(BaseModel):
+    fact: Fact
+    confidence: float
+    is_corroborated: bool = False
+
+class Signal(BaseModel):
+    name: str
+    value: Any
+    weight: float = 1.0
 
 class ActionRecommendation(BaseModel):
     summary: str
-    priority: str # "P0", "P1", "P2", "P3"
+    priority: str # P0, P1, P2, P3
     implementation: str
     verification: str
-    effort: str # "low", "medium", "high"
-    expected_impact: str # "low", "medium", "high"
+    effort: str # low, medium, high
+    expected_impact: str # low, medium, high
+
+class RootCause(BaseModel):
+    id: str
+    title: str
+    description: str
+    contributing_findings: List[str] = [] # list of Finding IDs
 
 class Finding(BaseModel):
     id: str
     title: str
     category: str
-    type: str # "defect", "risk", "observation"
-    severity: str # "critical", "high", "medium", "low"
+    type: FindingType
+    severity: str # critical, high, medium, low
     confidence: float
+    affected_pages: List[str] = []
     evidence: List[EvidenceItem]
-    mechanism: Optional[str] = None
+    mechanism: str
     ai_impact: Optional[str] = None
     user_impact: Optional[str] = None
-    root_cause: Optional[str] = None
-    affected_pages: List[str] = []
-    affected_entities: List[str] = []
-    suggested_action: Optional[ActionRecommendation] = None
+    suggested_action: ActionRecommendation
+    root_cause_id: Optional[str] = None
 
 class Opportunity(BaseModel):
     id: str
     title: str
     description: str
-    evidence: List[EvidenceItem]
     suggested_action: ActionRecommendation
 
 class PageRecord(BaseModel):
@@ -82,44 +85,44 @@ class PageRecord(BaseModel):
     robots_allowed: bool
     title: Optional[str] = None
     canonical_url: Optional[str] = None
-    importance: str # "P0", "P1", "P2", "P3"
+    importance_score: float = 0.0
     structured_data: List[Dict[str, Any]] = []
 
 class CrawlRecord(BaseModel):
     start_time: datetime
     end_time: Optional[datetime] = None
-    pages_visited: int = 0
+    pages_crawled: int = 0
+    errors: int = 0
     pages: Dict[str, PageRecord] = {}
-    robots_txt_content: Optional[str] = None
-    sitemaps_found: List[str] = []
+    sitemap_urls: List[str] = []
 
 class AuditTarget(BaseModel):
     url: str
     domain: str
 
+class ReadinessScore(BaseModel):
+    total: int = 0
+    discoverability: int = 0
+    semantics: int = 0
+    engagement: int = 0
+
 class AuditContext(BaseModel):
     target: AuditTarget
     crawl: CrawlRecord
-    entities: Dict[str, EntityRecord] = {}
-    facts: Dict[str, FactRecord] = {}
-    claims: Dict[str, ClaimRecord] = {}
-    sources: Dict[str, SourceRecord] = {}
-    signals: List[Signal] = []
     findings: List[Finding] = []
     opportunities: List[Opportunity] = []
-
-class AuditSummary(BaseModel):
-    total_findings: int
-    critical: int
-    high: int
-    medium: int
-    low: int
-    ai_readiness_score: int
+    root_causes: List[RootCause] = []
+    entities: List[Entity] = []
+    facts: List[Fact] = []
+    claims: List[Claim] = []
+    signals: List[Signal] = []
+    html_pages: Dict[str, str] = {} # Storing fetched HTML
 
 class FinalAuditReport(BaseModel):
     site: str
     audited_at: str
-    summary: AuditSummary
+    score: ReadinessScore
+    summary: Dict[str, int]
+    root_causes: List[RootCause]
     findings: List[Finding]
     opportunities: List[Opportunity]
-    root_causes: List[str] = []
