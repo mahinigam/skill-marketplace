@@ -1,0 +1,47 @@
+{
+  "name": "ai-readiness-intelligence-marketplace",
+  "version": "1.0.0",
+  "skills": [
+    {
+      "id": "audit-orchestrator",
+      "path": "skills/audit-orchestrator",
+      "entrypoint": true
+    },
+    {
+      "id": "crawlability-audit",
+      "path": "skills/crawlability-audit"
+    },
+    {
+      "id": "render-and-content-audit",
+      "path": "skills/render-and-content-audit"
+    },
+    {
+      "id": "semantic-structure-audit",
+      "path": "skills/semantic-structure-audit"
+    },
+    {
+      "id": "entity-resolution-audit",
+      "path": "skills/entity-resolution-audit"
+    },
+    {
+      "id": "freshness-and-corroboration-audit",
+      "path": "skills/freshness-and-corroboration-audit"
+    },
+    {
+      "id": "answerability-audit",
+      "path": "skills/answerability-audit"
+    },
+    {
+      "id": "semantic-integrity-audit",
+      "path": "skills/semantic-integrity-audit"
+    },
+    {
+      "id": "ai-landing-context-audit",
+      "path": "skills/ai-landing-context-audit"
+    },
+    {
+      "id": "opportunity-engine",
+      "path": "skills/opportunity-engine"
+    }
+  ]
+}
