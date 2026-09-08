@@ -11,15 +11,18 @@ from shared.utilities.crawler import SiteCrawler
 from shared.utilities.scoring import summarize_audit
 
 # Import all skills
-from skills.crawlability_audit.scripts import audit as crawl_audit
-from skills.render_and_content_audit.scripts import audit as render_audit
-from skills.semantic_structure_audit.scripts import audit as semantic_audit
-from skills.entity_resolution_audit.scripts import audit as entity_audit
-from skills.freshness_and_corroboration_audit.scripts import audit as freshness_audit
-from skills.answerability_audit.scripts import audit as answerability_audit
-from skills.semantic_integrity_audit.scripts import audit as integrity_audit
-from skills.ai_landing_context_audit.scripts import audit as landing_audit
-from skills.opportunity_engine.scripts import audit as opportunity_engine
+import importlib
+
+# Dynamically import skills because their directories have hyphens
+crawl_audit = importlib.import_module("skills.crawlability-audit.scripts.audit")
+render_audit = importlib.import_module("skills.render-and-content-audit.scripts.audit")
+semantic_audit = importlib.import_module("skills.semantic-structure-audit.scripts.audit")
+entity_audit = importlib.import_module("skills.entity-resolution-audit.scripts.audit")
+freshness_audit = importlib.import_module("skills.freshness-and-corroboration-audit.scripts.audit")
+answerability_audit = importlib.import_module("skills.answerability-audit.scripts.audit")
+integrity_audit = importlib.import_module("skills.semantic-integrity-audit.scripts.audit")
+landing_audit = importlib.import_module("skills.ai-landing-context-audit.scripts.audit")
+opportunity_engine = importlib.import_module("skills.opportunity-engine.scripts.audit")
 
 def run_orchestrator(target_url: str) -> FinalAuditReport:
     client = SafeHTTPClient()
