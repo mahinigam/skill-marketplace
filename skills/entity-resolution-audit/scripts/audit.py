@@ -1,8 +1,9 @@
 import sys
 import os
+from bs4 import BeautifulSoup
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType, Entity
+from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType, Entity, FindingCategory
 from shared.utilities.extractors import extract_json_ld
 
 def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
@@ -13,21 +14,51 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     
     for url, html in html_cache.items():
         json_blocks = extract_json_ld(html)
+        found_in_json = False
         
         for block in json_blocks:
             type_val = block.get('@type', '')
             if type_val in ['Organization', 'Brand', 'LocalBusiness', 'Corporation']:
                 name = block.get('name')
                 if name:
+                    found_in_json = True
                     if name not in orgs_found:
                         orgs_found[name] = {
                             "type": type_val,
                             "aliases": block.get('alternateName', []),
                             "sameAs": block.get('sameAs', []),
-                            "urls": []
+                            "urls": [],
+                            "source": "json-ld"
                         }
                     orgs_found[name]["urls"].append(url)
                     
+        # Fallback to HTML Title / H1 extraction if JSON-LD missing
+        if not found_in_json:
+            soup = BeautifulSoup(html, 'html.parser')
+            title = soup.title.string if soup.title else ""
+            h1 = soup.find('h1')
+            h1_text = h1.get_text(strip=True) if h1 else ""
+            
+            # Simple heuristic: "Page Title | Brand Name"
+            name_candidate = None
+            if "|" in title:
+                name_candidate = title.split("|")[-1].strip()
+            elif "-" in title:
+                name_candidate = title.split("-")[-1].strip()
+            elif h1_text:
+                name_candidate = h1_text
+                
+            if name_candidate:
+                if name_candidate not in orgs_found:
+                    orgs_found[name_candidate] = {
+                        "type": "Organization (Inferred)",
+                        "aliases": [],
+                        "sameAs": [],
+                        "urls": [],
+                        "source": "html-fallback"
+                    }
+                orgs_found[name_candidate]["urls"].append(url)
+                
     # Register entities to context
     for name, data in orgs_found.items():
         aliases = data["aliases"] if isinstance(data["aliases"], list) else [data["aliases"]]
@@ -41,14 +72,12 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         
     # Analyze Ambiguity
     if len(orgs_found) > 1:
-        # e.g., "Apple" vs "Apple Inc." vs "Apple Computers" mapped as distinct entities
-        # If they don't share sameAs links, it's ambiguous.
         evidence = []
         affected = []
         for name, data in orgs_found.items():
             affected.extend(data["urls"])
             evidence.append(EvidenceItem(
-                source_type="json-ld", 
+                source_type=data["source"], 
                 url=data["urls"][0], 
                 detail=f"Entity candidate: '{name}' (Type: {data['type']}). Lacks robust sameAs linkage." if not data["sameAs"] else f"Entity candidate: '{name}'"
             ))
@@ -56,7 +85,7 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         findings.append(Finding(
             id="ENT-001",
             title="Entity Ambiguity: Multiple Organization Profiles without canonical linkage",
-            category="Semantics",
+            category=FindingCategory.SEMANTICS,
             type=FindingType.DEFECT,
             severity="high",
             confidence=0.9,
@@ -73,17 +102,22 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
                 expected_impact="high"
             )
         ))
-    elif not orgs_found:
+    elif not orgs_found or all(d["source"] == "html-fallback" for d in orgs_found.values()):
+        evidence = []
+        if orgs_found:
+            for name, data in orgs_found.items():
+                evidence.append(EvidenceItem(source_type="html", url=data["urls"][0], detail=f"Inferred entity '{name}' from title/H1. No structured JSON-LD found."))
+                
         findings.append(Finding(
             id="ENT-002",
-            title="Missing Primary Organization Entity",
-            category="Semantics",
+            title="Missing Primary Structured Organization Entity",
+            category=FindingCategory.SEMANTICS,
             type=FindingType.DEFECT,
             severity="medium",
             confidence=0.95,
             affected_pages=[],
-            evidence=[],
-            mechanism="If the site does not declare who owns it, AI cannot attribute the facts to a brand.",
+            evidence=evidence,
+            mechanism="If the site does not declare who owns it explicitly in JSON-LD, AI relies on fragile heuristics.",
             ai_impact="Facts are treated as generic claims rather than authoritative brand statements.",
             suggested_action=ActionRecommendation(
                 summary="Inject Organization schema on the homepage.",

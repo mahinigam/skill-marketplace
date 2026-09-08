@@ -16,7 +16,7 @@ def run_audit(context: AuditContext, crawler: SiteCrawler) -> AuditContext:
         findings.append(Finding(
             id="CRAWL-001",
             title="Missing robots.txt",
-            category="discoverability",
+            category=FindingCategory.DISCOVERABILITY,
             type="risk",
             severity="medium",
             confidence=0.9,
@@ -37,7 +37,7 @@ def run_audit(context: AuditContext, crawler: SiteCrawler) -> AuditContext:
         findings.append(Finding(
             id="CRAWL-002",
             title="Missing Sitemap",
-            category="discoverability",
+            category=FindingCategory.DISCOVERABILITY,
             type="risk",
             severity="high",
             confidence=0.95,
@@ -63,7 +63,7 @@ def run_audit(context: AuditContext, crawler: SiteCrawler) -> AuditContext:
         findings.append(Finding(
             id="CRAWL-003",
             title="HTTP Errors on Sampled Pages",
-            category="discoverability",
+            category=FindingCategory.DISCOVERABILITY,
             type="defect",
             severity="high",
             confidence=1.0,

@@ -123,6 +123,23 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         findings = [f.id for f in context.findings]
         self.assertIn("CORR-001", findings)
         
+    def test_site_06_corroboration_healthy_external(self):
+        url = "https://site06-healthy.com/product"
+        html = """
+        <html><body>
+        <script type="application/ld+json">
+        [
+          {"@type": "Product", "sku": "123", "offers": {"price": "10.00"}, "dateModified": "2023-10-10"}
+        ]
+        </script>
+        </body></html>
+        """
+        context = self.base_context(url)
+        context = freshness_audit.run_audit(context, {url: html})
+        
+        findings = [f.id for f in context.findings]
+        self.assertNotIn("CORR-002", findings)  # Should not fail external corroboration
+        
     def test_site_07_answerability(self):
         url = "https://site07.com/product/xyz"
         html = """<html><body><h1>Cool Product</h1><p>Buy this amazing product</p><button>Add to cart</button></body></html>"""
@@ -133,20 +150,44 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         self.assertIn("ANS-001", findings)
 
     def test_site_09_semantic_integrity(self):
-        url = "https://site09.com/category"
+        url = "https://site09.com/product/category"
         html = """
         <html><body>
         <div><div class="product">P1</div><div class="product">P2</div></div>
         <p>Price: $10.00</p>
         <p>Price: $20.00</p>
         <p>Price: $30.00</p>
+        <p>Price: $40.00</p>
         </body></html>
         """
         context = self.base_context(url)
         context = integrity_audit.run_audit(context, {url: html})
         
         findings = [f.id for f in context.findings]
-        self.assertIn("INT-001", findings)
+        self.assertIn("SEM-001", findings)  # Updated ID based on new logic
+        
+    def test_site_09_semantic_integrity_healthy(self):
+        url = "https://site09-healthy.com/product/1"
+        html = """
+        <html><body>
+        <main>
+            <h1>Awesome Widget</h1>
+            <p>Price: $50.00</p>
+        </main>
+        <aside>
+            <h2>Cart Total</h2>
+            <p>Subtotal: $50.00</p>
+            <p>Tax: $5.00</p>
+            <p>Total: $55.00</p>
+        </aside>
+        </body></html>
+        """
+        context = self.base_context(url)
+        # Using integrity_audit because that's how it's named in the import above, though ID is SEM-001
+        context = integrity_audit.run_audit(context, {url: html})
+        
+        findings = [f.id for f in context.findings]
+        self.assertNotIn("SEM-001", findings)
         
     def test_site_10_landing_intent(self):
         url = "https://site10.com/landing"

@@ -81,9 +81,11 @@ def run_orchestrator(target_url: str) -> FinalAuditReport:
     
     # 5. Dimension-based Scoring
     context.crawl.end_time = datetime.datetime.now(datetime.timezone.utc)
+    execution_time_ms = int((context.crawl.end_time - context.crawl.start_time).total_seconds() * 1000)
     score = calculate_readiness_score(context.findings)
     
     summary = {
+        "execution_time_ms": execution_time_ms,
         "total_findings": len(context.findings),
         "critical": sum(1 for f in context.findings if f.severity == "critical"),
         "high": sum(1 for f in context.findings if f.severity == "high"),
@@ -106,7 +108,8 @@ def run_orchestrator(target_url: str) -> FinalAuditReport:
 def generate_markdown_report(report: FinalAuditReport) -> str:
     md = f"# AI READINESS AUDIT\n\n"
     md += f"**Site:** {report.site}\n"
-    md += f"**Audit Timestamp:** {report.audited_at}\n\n"
+    md += f"**Audit Timestamp:** {report.audited_at}\n"
+    md += f"**Execution Time:** {report.summary.get('execution_time_ms', 0)} ms\n\n"
     
     md += f"## OVERALL READINESS: {report.score.total} / 100\n"
     md += f"- Discoverability: {report.score.discoverability}\n"

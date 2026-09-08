@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+import re
+import yaml
 
 def main():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -32,13 +34,19 @@ def main():
     # 3. Check skill folders and SKILL.md
     for skill in skills:
         path = skill.get('path')
+        skill_id = skill.get('id')
         if not path:
-            print(f"FAIL: Skill {skill.get('id')} missing 'path'.")
+            print(f"FAIL: Skill {skill_id} missing 'path'.")
             sys.exit(1)
             
         skill_dir = os.path.join(root_dir, path)
         if not os.path.isdir(skill_dir):
             print(f"FAIL: Skill directory not found at {path}.")
+            sys.exit(1)
+            
+        # Ensure path matches ID
+        if not path.endswith(skill_id):
+            print(f"FAIL: Skill path {path} does not match skill ID {skill_id}.")
             sys.exit(1)
             
         skill_md = os.path.join(skill_dir, 'SKILL.md')
@@ -50,6 +58,22 @@ def main():
             content = f.read()
             if not content.startswith('---'):
                 print(f"FAIL: SKILL.md in {path} does not start with YAML frontmatter '---'.")
+                sys.exit(1)
+                
+            # Parse YAML frontmatter
+            match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
+            if not match:
+                print(f"FAIL: SKILL.md in {path} has malformed YAML frontmatter.")
+                sys.exit(1)
+                
+            try:
+                frontmatter = yaml.safe_load(match.group(1))
+            except yaml.YAMLError:
+                print(f"FAIL: SKILL.md in {path} has invalid YAML syntax in frontmatter.")
+                sys.exit(1)
+                
+            if 'name' not in frontmatter or 'description' not in frontmatter:
+                print(f"FAIL: SKILL.md in {path} frontmatter must contain 'name' and 'description'.")
                 sys.exit(1)
                 
     # 4. Check README

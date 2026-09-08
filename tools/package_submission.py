@@ -3,15 +3,23 @@ import sys
 import zipfile
 import shutil
 import subprocess
+import tempfile
 
 def main():
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     
-    print("Running validation...")
+    print("Running initial validation...")
     val_script = os.path.join(root_dir, 'tools', 'validate_marketplace.py')
     result = subprocess.run([sys.executable, val_script])
     if result.returncode != 0:
         print("Validation failed. Cannot package.")
+        sys.exit(1)
+        
+    print("Running tests before packaging...")
+    test_script = os.path.join(root_dir, 'tests', 'test_audit.py')
+    result = subprocess.run([sys.executable, test_script])
+    if result.returncode != 0:
+        print("Tests failed. Cannot package.")
         sys.exit(1)
         
     dist_dir = os.path.join(root_dir, 'dist')
@@ -19,7 +27,7 @@ def main():
     zip_path = os.path.join(dist_dir, 'ai-readiness-intelligence-marketplace.zip')
     
     # Files/folders to exclude
-    excludes = ['__pycache__', '.git', '.env', 'dist', 'venv', '.pytest_cache', 'audit.json', 'audit.md']
+    excludes = ['__pycache__', '.git', '.env', 'dist', 'venv', '.pytest_cache', 'audit.json', 'audit.md', '.DS_Store']
     
     print(f"Creating zip archive at {zip_path}...")
     
@@ -49,8 +57,23 @@ def main():
     
     if size_mb > 50:
         print("WARNING: Size exceeds 50 MB limit!")
-    else:
-        print("SUCCESS: Ready for submission.")
+        sys.exit(1)
+        
+    print("Performing self-validation on ZIP archive...")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
+            
+        extracted_root = os.path.join(temp_dir, 'ai-readiness-intelligence-marketplace')
+        val_script_extracted = os.path.join(extracted_root, 'tools', 'validate_marketplace.py')
+        
+        print("Running validator on extracted contents...")
+        result = subprocess.run([sys.executable, val_script_extracted])
+        if result.returncode != 0:
+            print("ZIP self-validation failed! Extracted contents are invalid.")
+            sys.exit(1)
+            
+        print("SUCCESS: Ready for submission. ZIP self-validation passed.")
 
 if __name__ == "__main__":
     main()

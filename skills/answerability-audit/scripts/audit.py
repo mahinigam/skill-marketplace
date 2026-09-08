@@ -1,31 +1,46 @@
 import sys
 import os
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType
+from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType, FindingCategory
 from shared.utilities.extractors import extract_visible_text
 
+class ExpectedFact:
+    def __init__(self, key: str, extractors: List[str]):
+        self.key = key
+        self.extractors = extractors
+
 class SyntheticQuestion:
-    def __init__(self, text: str, intent: str, extractors: List[str]):
+    def __init__(self, text: str, intent: str, expected_facts: List[ExpectedFact]):
         self.text = text
         self.intent = intent
-        self.extractors = extractors
+        self.expected_facts = expected_facts
+
+def retrieve_fact(html_text: str, fact: ExpectedFact) -> List[str]:
+    results = []
+    for regex in fact.extractors:
+        matches = re.findall(regex, html_text, re.IGNORECASE)
+        results.extend(matches)
+    return list(set(results))
 
 def evaluate_answerability(html_text: str, questions: List[SyntheticQuestion]) -> float:
     scores = []
     for q in questions:
-        matches = 0
-        for regex in q.extractors:
-            matches += len(re.findall(regex, html_text, re.IGNORECASE))
-        
-        if matches == 1:
-            scores.append(1.0) # Unambiguous coverage
-        elif matches > 1:
-            scores.append(0.5) # Ambiguous coverage (multiple potential answers)
-        else:
-            scores.append(0.0) # No coverage
+        fact_scores = []
+        for fact in q.expected_facts:
+            retrieved = retrieve_fact(html_text, fact)
+            if len(retrieved) == 1:
+                fact_scores.append(1.0) # Unambiguous coverage
+            elif len(retrieved) > 1:
+                fact_scores.append(0.5) # Ambiguous coverage
+            else:
+                fact_scores.append(0.0) # No coverage
+                
+        # Question score is the average of its expected facts
+        if fact_scores:
+            scores.append(sum(fact_scores) / len(fact_scores))
             
     return sum(scores) / len(scores) if scores else 1.0
 
@@ -33,9 +48,14 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     findings = []
     
     product_questions = [
-        SyntheticQuestion("What is the price?", "price", [r'[\$\€\£\₹\¥]\s*\d+[\.,]?\d*', r'(?:usd|eur|gbp|inr|cad|aud)\s*\d+']),
-        SyntheticQuestion("Is it in stock?", "availability", [r'in stock', r'out of stock', r'available', r'sold out']),
-        SyntheticQuestion("What is the weight/size?", "dimensions", [r'\d+\s*(?:kg|lbs|oz|cm|mm|inches)'])
+        SyntheticQuestion(
+            text="What is the price and is it in stock?", 
+            intent="purchase_decision", 
+            expected_facts=[
+                ExpectedFact("price", [r'[\$\€\£\₹\¥]\s*\d+[\.,]?\d*', r'(?:usd|eur|gbp|inr|cad|aud)\s*\d+']),
+                ExpectedFact("availability", [r'in stock', r'out of stock', r'available', r'sold out'])
+            ]
+        )
     ]
     
     unanswerable_pages = []
@@ -43,7 +63,6 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     for url, html in html_cache.items():
         text = extract_visible_text(html)
         
-        # Determine page type
         if 'product' in url.lower() or 'buy' in text.lower() or 'add to cart' in text.lower():
             score = evaluate_answerability(text, product_questions)
             if score < 0.5:
@@ -53,25 +72,25 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         evidence = [EvidenceItem(
             source_type="html", 
             url=u[0], 
-            detail=f"Answerability score: {u[1]:.2f}. Failed to unambiguously answer synthesized product questions (price, availability, dimensions)."
+            detail=f"Answerability score: {u[1]:.2f}. Failed to retrieve expected facts (price, availability) to answer synthetic query."
         ) for u in unanswerable_pages[:5]]
         
         findings.append(Finding(
             id="ANS-001",
-            title="Poor Unstructured Answerability for High-Intent Queries",
-            category="Engagement",
+            title="Poor Answerability for High-Intent Queries",
+            category=FindingCategory.ENGAGEMENT,
             type=FindingType.DEFECT,
             severity="high",
             confidence=0.85,
             affected_pages=[u[0] for u in unanswerable_pages],
             evidence=evidence,
-            mechanism="AI systems extract answers from raw text. If the text lacks unambiguous factual indicators (e.g. standard currency, explicit stock status), the AI drops the citation.",
+            mechanism="AI constructs answers by retrieving specific expected facts. If extraction fails or yields ambiguous results, it drops the citation.",
             ai_impact="AI states it doesn't know the price or specifications, refusing to confidently recommend the product.",
             suggested_action=ActionRecommendation(
                 summary="Ensure facts can unambiguously answer common user questions.",
                 priority="P1",
-                implementation="Add explicit text blocks for price, stock, and specs. Avoid hiding facts in images or non-standard formats (e.g. 'Five thousand rupees' instead of '₹5,000').",
-                verification="Test if a generic LLM can extract price, weight, and stock status purely from the page's raw text.",
+                implementation="Add explicit text blocks for price and stock. Avoid hiding facts in images or non-standard formats.",
+                verification="Test if a generic LLM can extract expected facts purely from the page's raw text.",
                 effort="medium",
                 expected_impact="high"
             )

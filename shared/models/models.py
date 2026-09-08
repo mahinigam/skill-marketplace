@@ -9,6 +9,11 @@ class FindingType(str, Enum):
     OPPORTUNITY = "opportunity"
     OBSERVATION = "observation"
 
+class FindingCategory(str, Enum):
+    DISCOVERABILITY = "Discoverability"
+    SEMANTICS = "Semantics"
+    ENGAGEMENT = "Engagement"
+
 class Source(BaseModel):
     url: str
     source_type: str # html, json-ld, robots, sitemap, external
@@ -59,7 +64,7 @@ class RootCause(BaseModel):
 class Finding(BaseModel):
     id: str
     title: str
-    category: str
+    category: FindingCategory
     type: FindingType
     severity: str # critical, high, medium, low
     confidence: float
@@ -75,6 +80,10 @@ class Opportunity(BaseModel):
     id: str
     title: str
     description: str
+    evidence: List[EvidenceItem] = []
+    confidence: float
+    impact: str # low, medium, high
+    priority: str # P0, P1, P2, P3
     suggested_action: ActionRecommendation
 
 class PageRecord(BaseModel):

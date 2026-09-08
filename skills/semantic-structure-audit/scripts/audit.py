@@ -3,7 +3,7 @@ import os
 import re
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType
+from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingType, FindingCategory
 from shared.utilities.extractors import extract_json_ld, extract_visible_text
 
 def extract_prices(text: str):
@@ -46,7 +46,7 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         findings.append(Finding(
             id="SEM-001",
             title="Missing structured data (JSON-LD) with clean HTML fallback",
-            category="Semantics",
+            category=FindingCategory.SEMANTICS,
             type=FindingType.OPPORTUNITY,
             severity="medium",
             confidence=0.9,
@@ -67,7 +67,7 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         findings.append(Finding(
             id="SEM-002",
             title="Missing structured data AND ambiguous DOM structure",
-            category="Semantics",
+            category=FindingCategory.SEMANTICS,
             type=FindingType.DEFECT,
             severity="high",
             confidence=0.95,
@@ -95,7 +95,7 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         findings.append(Finding(
             id="SEM-003",
             title="Contradictory Facts: Structured Data vs Visible Text",
-            category="Semantics",
+            category=FindingCategory.SEMANTICS,
             type=FindingType.DEFECT,
             severity="critical",
             confidence=0.95,

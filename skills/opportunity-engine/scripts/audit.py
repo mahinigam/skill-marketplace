@@ -23,6 +23,9 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
             title="Implement FAQ Schema for High-Intent Questions",
             description="Proactively answering common AI queries (What is X? How much is X?) using FAQ schema increases the chance of direct citation.",
             evidence=[EvidenceItem(source_type="json_ld", url=context.target.url, detail="No FAQPage schema found across sampled pages.")],
+            confidence=0.8,
+            impact="medium",
+            priority="P2",
             suggested_action=ActionRecommendation(
                 summary="Create an FAQ page with FAQPage JSON-LD.",
                 priority="P2",
