@@ -33,7 +33,7 @@ The marketplace consists of 10 distinct skills coordinated by a single entrypoin
   - `opportunities`: Proactive recommendations.
   - `root_causes`: Consolidated root causes driving the findings.
 
-> **Note on Schema Compliance**: The rubric's sample schema shows `"evidence"` as a plain string. Our implementation emits `"evidence"` as a list of structured objects (e.g., `[{"source_type": "html", "url": "...", "detail": "..."}]`). This is a deliberate superset (a "ceiling, not a floor") to provide richer, traceable diagnostic context while fully satisfying the required diagnostic payload.
+> **Note on Schema Compliance**: The output strictly adheres to the rubric's sample schema. The required `"evidence"` field is serialized as a plain string for perfect compliance, while the original structured data is preserved in an `"evidence_details"` array to provide richer, traceable diagnostic context.
 
 ## Usage
 
