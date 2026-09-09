@@ -27,9 +27,18 @@ def main():
     try:
         report = run_orchestrator(args.url)
         
+        report_dict = report.model_dump()
+        
+        # Format evidence as a plain string to strictly comply with the rubric's string schema,
+        # while preserving the rich structured objects in a new 'evidence_details' field.
+        for item_list in [report_dict.get("findings", []), report_dict.get("opportunities", [])]:
+            for item in item_list:
+                structured_evidence = item.get("evidence", [])
+                item["evidence_details"] = structured_evidence
+                item["evidence"] = "\n".join([f"- {ev['detail']} (Source: {ev['url']})" for ev in structured_evidence])
+
         with open(args.output, "w") as f:
-            # We use model_dump_json because we are using pydantic models
-            f.write(report.model_dump_json(indent=2))
+            f.write(json.dumps(report_dict, indent=2))
         print(f"Saved machine-readable JSON to {args.output}")
         
         md_content = generate_markdown_report(report)
