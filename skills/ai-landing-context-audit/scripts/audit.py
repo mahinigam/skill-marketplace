@@ -37,14 +37,17 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         if not has_h1 or has_wall or title_h1_mismatch:
             poor_citation_pages.append((url, not has_h1, has_wall, title_h1_mismatch))
             
-        # 2. Claim-based Context Continuity
-        # Simulate AI citing a price. We expect the price to be visible immediately (first ~1000 chars of visible text).
+        # 2. Claim-based Context Continuity (Early-Page Visibility Proxy)
+        # Simulate AI citing a price. We check if the price appears early in the
+        # visible text stream (character index < 1500) as a proxy for viewport position.
+        # Note: character index is NOT viewport geometry; this is a content-order heuristic.
         prices = re.findall(r'[\$\€\£\₹\¥]\s*\d+[\.,]?\d*', text)
         if prices:
             primary_price = prices[0]
             # Check where it appears in the raw visible text
             idx = text.find(primary_price)
-            # If it's buried deep in the text (e.g. footer or requires scrolling), it fails continuity
+            # If it's buried deep in the text stream, it likely requires scrolling to find.
+            # This is an early-page visibility proxy, not a true viewport measurement.
             if idx > 1500:
                 claim_visibility_failures.append((url, primary_price, idx))
             
@@ -82,7 +85,7 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
         evidence = [EvidenceItem(
             source_type="html", 
             url=u[0], 
-            detail=f"Claimed fact '{u[1]}' is buried at character index {u[2]} of visible text, likely below the fold."
+            detail=f"Claimed fact '{u[1]}' appears at character index {u[2]} of visible text (early-page visibility proxy suggests it requires scrolling to find)."
         ) for u in claim_visibility_failures[:5]]
         
         findings.append(Finding(
@@ -94,13 +97,13 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
             confidence=0.85,
             affected_pages=[u[0] for u in claim_visibility_failures],
             evidence=evidence,
-            mechanism="Users clicking an AI citation want to instantly verify the specific claim (e.g., price). If it's below the fold, they bounce.",
-            user_impact="High bounce rate as users fail to instantly verify the AI's claim.",
+            mechanism="Users clicking an AI citation want to instantly verify the specific claim (e.g., price). If the claim appears late in the content stream, users may need to scroll to find it, increasing bounce risk.",
+            user_impact="Higher bounce rate when the cited fact requires scrolling to locate.",
             suggested_action=ActionRecommendation(
                 summary="Move core facts above the fold.",
                 priority="P2",
-                implementation="Ensure primary facts (price, stock, core specs) are visible immediately upon load without scrolling.",
-                verification="Visually inspect the page to ensure the fact is above the fold.",
+                implementation="Ensure primary facts (price, stock, core specs) appear early in the DOM content order, ideally within the first viewport.",
+                verification="Check that the cited fact appears within the first 1500 characters of visible text.",
                 effort="medium",
                 expected_impact="medium"
             )

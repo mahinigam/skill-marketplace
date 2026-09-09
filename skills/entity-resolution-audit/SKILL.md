@@ -12,9 +12,10 @@ Use this skill when you want to ensure the website presents a clear, unambiguous
 - `AuditContext` containing sampled pages and structured data.
 
 ## Procedure
-1. Extract organization names, brand names, and aliases from visible text and JSON-LD.
-2. Check if multiple distinct identities are used interchangeably without strong canonical linking.
-3. Generate findings if identity signals are weak or highly ambiguous.
+1. Extract organization names, brand names, and aliases from visible text and JSON-LD structured data.
+2. Apply fallback extraction (e.g., checking `<title>`, `<h1>`, and canonical tags) if primary signals are missing.
+3. Check if multiple distinct identities or conflicting brand signals are used interchangeably without strong canonical linking.
+4. Generate findings if entity identity signals are weak, highly ambiguous, or contradictory across the page.
 
 ## Output
 Appends Findings to the `AuditContext`.

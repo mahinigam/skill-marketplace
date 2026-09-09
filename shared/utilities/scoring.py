@@ -1,6 +1,7 @@
 import math
 import uuid
-from typing import List, Dict, Any, Tuple
+import re
+from typing import List, Dict, Any, Tuple, Set
 from collections import defaultdict
 from shared.models.models import Finding, RootCause, ReadinessScore, FindingType, ActionRecommendation, FindingCategory
 
@@ -51,49 +52,124 @@ def fuse_findings(findings: List[Finding]) -> List[Finding]:
             
     return list(fused_map.values())
 
+
+def _tokenize(text: str) -> Set[str]:
+    """Extract meaningful keywords from a text string, lowercased."""
+    stop_words = {"the", "a", "an", "is", "are", "to", "for", "of", "in", "on", "and", "or", "that", "this", "it", "with", "as", "by"}
+    words = set(re.findall(r'[a-z]+', text.lower()))
+    return words - stop_words
+
+
+def _jaccard_similarity(set_a: set, set_b: set) -> float:
+    """Jaccard similarity between two sets."""
+    if not set_a and not set_b:
+        return 0.0
+    intersection = set_a & set_b
+    union = set_a | set_b
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _action_verb(action: ActionRecommendation) -> str:
+    """Extract the leading verb from an action summary (e.g., 'Add', 'Implement', 'Wrap')."""
+    words = action.summary.strip().split()
+    return words[0].lower() if words else ""
+
+
 def correlate_root_causes(findings: List[Finding]) -> Tuple[List[Finding], List[RootCause]]:
     """
-    Clusters findings to find root causes dynamically based on shared mechanisms, pages, or recommendations.
+    Clusters findings to find root causes using multi-signal correlation:
+      - Shared mechanism keywords (tokenized, not prefix)
+      - Shared affected pages (Jaccard similarity >= 0.3)
+      - Same category
+      - Same suggested action verb
+    
+    A pair of findings must share at least 2 of these 4 signals to be grouped.
     """
     root_causes = []
+    n = len(findings)
+    if n < 2:
+        return findings, root_causes
     
-    # 1. Correlate by Shared Action Recommendation
-    action_clusters = defaultdict(list)
-    for f in findings:
-        # Group by the first 30 chars of the implementation to catch similar actions
-        key = f.suggested_action.implementation[:30]
-        action_clusters[key].append(f)
-        
-    for key, group in action_clusters.items():
-        if len(group) >= 2:
-            rc = RootCause(
-                id=f"RC-{uuid.uuid4().hex[:6]}",
-                title=f"Systemic issue requiring: {group[0].suggested_action.summary}",
-                description=f"Multiple defects trace back to the same missing implementation: {group[0].suggested_action.implementation}",
-                contributing_findings=[f.id for f in group]
-            )
-            root_causes.append(rc)
-            for f in group:
-                f.root_cause_id = rc.id
+    # Pre-compute per-finding features
+    mech_tokens = [_tokenize(f.mechanism) for f in findings]
+    page_sets = [set(f.affected_pages) for f in findings]
+    categories = [f.category for f in findings]
+    action_verbs = [_action_verb(f.suggested_action) for f in findings]
+    impl_tokens = [_tokenize(f.suggested_action.implementation) for f in findings]
+    
+    # Build adjacency: edge between i and j if >=2 signals match
+    adjacency = defaultdict(set)
+    for i in range(n):
+        for j in range(i + 1, n):
+            signals_shared = 0
+            
+            # Signal 1: mechanism keyword overlap (Jaccard >= 0.3)
+            if _jaccard_similarity(mech_tokens[i], mech_tokens[j]) >= 0.3:
+                signals_shared += 1
                 
-    # 2. Correlate by Shared Mechanism
-    unassigned = [f for f in findings if not f.root_cause_id]
-    mech_clusters = defaultdict(list)
-    for f in unassigned:
-        key = f.mechanism[:50]
-        mech_clusters[key].append(f)
+            # Signal 2: affected page overlap (Jaccard >= 0.3)
+            if _jaccard_similarity(page_sets[i], page_sets[j]) >= 0.3:
+                signals_shared += 1
+                
+            # Signal 3: same category
+            if categories[i] == categories[j]:
+                signals_shared += 1
+                
+            # Signal 4: same action verb AND implementation keyword overlap
+            if action_verbs[i] and action_verbs[i] == action_verbs[j]:
+                signals_shared += 1
+            elif _jaccard_similarity(impl_tokens[i], impl_tokens[j]) >= 0.4:
+                signals_shared += 1
+                
+            if signals_shared >= 2:
+                adjacency[i].add(j)
+                adjacency[j].add(i)
+    
+    # Greedy connected-component clustering
+    assigned = set()
+    clusters = []
+    for i in range(n):
+        if i in assigned:
+            continue
+        if i not in adjacency:
+            continue
+        # BFS to find the connected component
+        cluster = set()
+        queue = [i]
+        while queue:
+            node = queue.pop(0)
+            if node in assigned:
+                continue
+            assigned.add(node)
+            cluster.add(node)
+            for neighbor in adjacency[node]:
+                if neighbor not in assigned:
+                    queue.append(neighbor)
+        if len(cluster) >= 2:
+            clusters.append(cluster)
+    
+    # Create root causes from clusters
+    for cluster in clusters:
+        group = [findings[idx] for idx in cluster]
         
-    for key, group in mech_clusters.items():
-        if len(group) >= 2:
-            rc = RootCause(
-                id=f"RC-{uuid.uuid4().hex[:6]}",
-                title="Shared Failure Mechanism",
-                description=f"Multiple defects share a failure mechanism: {group[0].mechanism}",
-                contributing_findings=[f.id for f in group]
-            )
-            root_causes.append(rc)
-            for f in group:
-                f.root_cause_id = rc.id
+        # Determine root cause title from the most common mechanism keywords
+        all_mech_tokens = set()
+        for idx in cluster:
+            all_mech_tokens |= mech_tokens[idx]
+        
+        # Use the most severe finding's mechanism as the description
+        group_sorted = sorted(group, key=lambda f: {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(f.severity, 4))
+        primary = group_sorted[0]
+        
+        rc = RootCause(
+            id=f"RC-{uuid.uuid4().hex[:6]}",
+            title=f"Systemic: {primary.suggested_action.summary}",
+            description=f"Multiple defects ({len(group)}) share a common failure pattern: {primary.mechanism}",
+            contributing_findings=[f.id for f in group]
+        )
+        root_causes.append(rc)
+        for f in group:
+            f.root_cause_id = rc.id
                 
     return findings, root_causes
 
@@ -112,7 +188,7 @@ def calculate_readiness_score(findings: List[Finding]) -> ReadinessScore:
     for f in sorted_findings:
         cat = f.category
         if cat not in scores:
-            cat = FindingCategory.DISCOVERABILITY # fallback
+            cat = FindingCategory.DISCOVERABILITY  # fallback
             
         base_deduction = severity_weights.get(f.severity, 0)
         

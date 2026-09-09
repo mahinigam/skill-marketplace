@@ -11,15 +11,15 @@ The core philosophy of this marketplace is:
 
 The marketplace consists of 10 distinct skills coordinated by a single entrypoint:
 
-1. **`audit-orchestrator`** (ENTRYPOINT): Orchestrates the entire audit, merges findings, deduplicates root causes via evidence clustering, calculates non-linear readiness scores, and generates the final JSON and Markdown reports.
+1. **`audit-orchestrator`** (ENTRYPOINT): Orchestrates the entire audit, merges findings, deduplicates root causes via evidence-graph correlation, calculates non-linear readiness scores, and generates the final JSON and Markdown reports.
 2. **`crawlability-audit`**: Checks robots.txt, sitemaps, HTTP errors, and basic page discoverability.
 3. **`render-and-content-audit`**: Detects if critical facts rely heavily on client-side JS using Simulated Headless Rendering (Bounded execution) with optional Playwright fallback.
 4. **`semantic-structure-audit`**: Audits JSON-LD structured data vs. explicit visible DOM facts.
 5. **`entity-resolution-audit`**: Analyzes brand and product names to detect identity ambiguity (uses title/H1 fallbacks).
-6. **`freshness-and-corroboration-audit`**: Checks for staleness and internally conflicting information, supporting mock external corroboration API flows.
+6. **`freshness-and-corroboration-audit`**: Checks for staleness and internally conflicting information, with optional provider adapter for external corroboration (deterministic fixtures included for offline testing).
 7. **`answerability-audit`**: Evaluates expected fact-coverage (e.g., price, availability) against natural language questions, penalizing ambiguous extraction.
 8. **`semantic-integrity-audit`**: Detects attribute contamination, distinguishing legitimate global objects (e.g. cart totals) from boundary bleed.
-9. **`ai-landing-context-audit`**: Simulates an AI answering a specific claim and verifies that claim is visible above the fold without scrolling.
+9. **`ai-landing-context-audit`**: Simulates an AI answering a specific claim and verifies that claim passes the early-page visibility proxy (character-index threshold).
 10. **`opportunity-engine`**: Generates proactive recommendations beyond explicit defects (e.g., FAQ expansions) supported by verifiable evidence.
 
 ## Input and Output Format

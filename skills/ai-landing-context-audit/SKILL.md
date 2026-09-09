@@ -12,10 +12,11 @@ Use this skill to determine if the destination URLs cited by an AI assistant pre
 - `AuditContext` containing sampled pages and their HTML content.
 
 ## Procedure
-1. Check if the page title clearly identifies the subject.
-2. Check for clear navigation or next-step actions.
-3. Detect generic routing (e.g., redirecting all deep links to the homepage).
-4. Generate findings if the landing context is poor.
+1. Check if the page `<title>` and main heading (`<h1>`) clearly identify the subject the user is landing to see.
+2. Simulate an AI answering a specific claim and verify that the exact claim text passes the early-page visibility proxy (using a character-index threshold in the visible text) rather than being buried.
+3. Detect generic routing (e.g., redirecting all deep links to the homepage) or disruptive full-page modals.
+4. Check for clear navigation or next-step actions.
+5. Generate findings if the landing context is poor or breaks continuity.
 
 ## Output
 Appends Findings to the `AuditContext`.

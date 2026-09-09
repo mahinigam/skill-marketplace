@@ -7,3 +7,4 @@ audit.md
 dist/
 .env
 .DS_Store
+fix_categories.py

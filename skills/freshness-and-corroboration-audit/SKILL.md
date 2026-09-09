@@ -12,9 +12,13 @@ Use this skill to detect if a website provides conflicting information internall
 - `AuditContext` containing sampled pages and structured data.
 
 ## Procedure
-1. Extract dates from `datePublished`, `dateModified`, sitemap `lastmod`, or HTTP `Last-Modified`.
-2. Extract common facts (e.g. price) across pages to detect contradictions.
-3. Generate findings if important claims are contradictory or freshness signals are consistently missing.
+1. Extract dates from `datePublished`, `dateModified`, sitemap `lastmod`, or HTTP `Last-Modified` headers to assess freshness signals.
+2. Extract common facts (e.g. price) across pages to detect internal contradictions.
+3. Utilize a provider-neutral adapter pattern (`CorroborationProvider`) to support multiple corroboration strategies:
+   - `InternalCorroborationProvider`: Always active, cross-references facts across crawled pages within the same site.
+   - `FixtureCorroborationProvider`: Uses deterministic test data for offline validation.
+   - `ExternalAPICorroborationProvider`: Safely attempts external API calls or explicitly reports "unavailable" when not configured.
+4. Generate findings if important claims are contradictory or freshness signals are consistently missing.
 
 ## Output
 Appends Findings to the `AuditContext`.

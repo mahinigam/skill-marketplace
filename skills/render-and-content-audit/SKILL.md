@@ -12,9 +12,11 @@ Use this skill to detect if critical facts, entity information, or core content 
 - `AuditContext` containing sampled pages.
 
 ## Procedure
-1. Extract visible text from the initial HTML.
-2. Estimate if the initial HTML lacks meaningful content (e.g. text-to-code ratio is extremely low, presence of `<div id="root"></div>` with no other content).
-3. Generate findings if JS-dependent rendering hides facts.
+1. Extract visible text from the raw HTTP (initial HTML) response to serve as the baseline.
+2. Utilize Bounded Simulated Headless Rendering (e.g., via `Playwright` or simulated extraction) to extract post-hydration text.
+3. Compare the baseline text to the post-hydration text.
+4. Estimate if the initial HTML lacks meaningful content (e.g. text-to-code ratio is extremely low, presence of `<div id="root"></div>` with no other content).
+5. Generate findings if critical facts or entity information rely entirely on JS-dependent rendering.
 
 ## Output
 Appends Findings to the `AuditContext`.

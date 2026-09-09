@@ -12,9 +12,9 @@ Use this skill when diagnosing if a website is discoverable by search crawlers a
 - `AuditContext` containing the target URL and initial discovered pages.
 
 ## Procedure
-1. Check if `robots.txt` exists and if it blocks important paths.
-2. Check if a sitemap exists and is valid.
-3. Assess the discoverability of sampled URLs.
+1. Check if `robots.txt` exists and parses properly.
+2. Check if a sitemap exists and is valid (extracting URL sets).
+3. Assess the discoverability of URLs using the `SiteCrawler` and `PageImportance` model, which prioritizes commercial relevance, navigation score, shallow crawl depth, and inbound link counts.
 4. Check for consistent canonicalization and HTTP errors (4xx, 5xx) on sampled pages.
 5. Generate findings based on evidence of poor discoverability or crawlability blocks.
 
