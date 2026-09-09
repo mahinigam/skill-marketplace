@@ -60,6 +60,24 @@ class TestAgentSkillMarketplace(unittest.TestCase):
         self.assertTrue(len(crawler.sitemap_urls) > 0)
         self.assertFalse(crawler.can_fetch(f"{url}/products/1"))
 
+    def test_site_01b_crawl_http_error(self):
+        url = "https://site01b.com"
+        client = MockHTTPClient({})
+        crawler = SiteCrawler(client)
+        context = self.base_context(url)
+        # Mock an error page
+        page_mock = type('obj', (object,), {'status_code': 404, 'headers': {}})()
+        context.crawl.pages[f"{url}/broken"] = page_mock
+        
+        context = crawl_audit.run_audit(context, crawler)
+        
+        finding_ids = [f.id for f in context.findings]
+        self.assertIn("CRAWL-003", finding_ids)
+        
+        # Verify the mechanism is populated
+        f_003 = next(f for f in context.findings if f.id == "CRAWL-003")
+        self.assertIsNotNone(f_003.mechanism)
+
     def test_site_02_js_only_content(self):
         url = "https://site02.com/product/1"
         payload = 'lots of hidden text ' * 1000

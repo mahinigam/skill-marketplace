@@ -6,7 +6,7 @@ import importlib
 from urllib.parse import urlparse
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
-from shared.models.models import AuditContext, AuditTarget, CrawlRecord, PageRecord, FinalAuditReport
+from shared.models.models import AuditContext, AuditTarget, CrawlRecord, PageRecord, FinalAuditReport, Finding, FindingCategory, EvidenceItem, ActionRecommendation
 from shared.utilities.http_client import SafeHTTPClient
 from shared.utilities.crawler import SiteCrawler
 from shared.utilities.scoring import fuse_findings, correlate_root_causes, calculate_readiness_score
@@ -71,6 +71,24 @@ def run_orchestrator(target_url: str) -> FinalAuditReport:
                 context = skill_module.run_audit(context, context.html_pages)
         except Exception as e:
             print(f"Error executing skill {skill_id}: {e}")
+            context.findings.append(Finding(
+                id=f"SYS-{skill_id[:4].upper()}-001",
+                title=f"Audit Skill Failed: {skill_id}",
+                category=FindingCategory.DISCOVERABILITY,
+                type="defect",
+                severity="low",
+                confidence=1.0,
+                evidence=[EvidenceItem(source_type="http", url=target_url, detail=f"Skill {skill_id} crashed with exception: {str(e)}")],
+                mechanism=f"An unexpected error occurred while executing the {skill_id} audit module.",
+                suggested_action=ActionRecommendation(
+                    summary="Check the orchestrator logs for stack traces.",
+                    priority="P3",
+                    implementation="Review the skill execution logs and fix the bug in the skill script.",
+                    verification="Run the orchestrator again and ensure the skill completes successfully.",
+                    effort="low",
+                    expected_impact="low"
+                )
+            ))
     
     client.close()
     

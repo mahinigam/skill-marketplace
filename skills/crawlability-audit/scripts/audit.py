@@ -69,6 +69,7 @@ def run_audit(context: AuditContext, crawler: SiteCrawler) -> AuditContext:
             confidence=1.0,
             affected_pages=error_urls[:5],
             evidence=[EvidenceItem(source_type="http", url=u, detail=f"Returned HTTP {context.crawl.pages[u].status_code}") for u in error_urls[:5]],
+            mechanism="HTTP errors on important pages prevent crawlers and AI assistants from indexing that content at all.",
             suggested_action=ActionRecommendation(
                 summary="Fix HTTP errors or implement proper redirects.",
                 priority="P0",
