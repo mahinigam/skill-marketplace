@@ -1,6 +1,7 @@
 ---
 name: ai-landing-context-audit
 description: Assesses on-site engagement quality when a user lands on the page from an AI citation, ensuring context continuity and intent match.
+allowed-tools: []
 ---
 
 # AI Landing Context Audit

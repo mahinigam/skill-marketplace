@@ -1,6 +1,7 @@
 ---
 name: crawlability-audit
 description: Audits a website for crawlability issues including robots.txt directives, sitemap presence, HTTP errors, canonical URLs, and page discoverability.
+allowed-tools: []
 ---
 
 # Crawlability Audit

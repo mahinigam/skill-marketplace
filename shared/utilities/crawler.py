@@ -75,11 +75,13 @@ class SiteCrawler:
                     if root.tag == "sitemapindex":
                         for loc in root.findall(".//loc"):
                             if loc.text:
-                                urls.extend(self.fetch_sitemap(loc.text.strip()))
+                                full_url = urljoin(url, loc.text.strip())
+                                urls.extend(self.fetch_sitemap(full_url))
                     else:
                         for loc in root.findall(".//loc"):
                             if loc.text:
-                                urls.append(loc.text.strip())
+                                full_url = urljoin(url, loc.text.strip())
+                                urls.append(full_url)
             except ET.ParseError:
                 pass
         return urls
@@ -100,10 +102,17 @@ class SiteCrawler:
         candidates: Dict[str, PageCandidate] = {}
         
         def get_or_create(u: str) -> PageCandidate:
+            # Normalize trailing slash for consistent deduplication
+            if u.endswith('/'):
+                u = u[:-1]
             if u not in candidates:
                 candidates[u] = PageCandidate(u)
                 candidates[u].commercial_relevance = self._assess_commercial_relevance(u)
             return candidates[u]
+
+        # Also normalize start_url
+        if start_url.endswith('/'):
+            start_url = start_url[:-1]
 
         # 1. Sitemaps
         for sm in self.sitemap_urls:

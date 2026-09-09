@@ -1,6 +1,7 @@
 ---
 name: freshness-and-corroboration-audit
 description: Audits the freshness of information and internal consistency of facts (e.g. price, dates) across the website to prevent AI assistants from serving stale information.
+allowed-tools: []
 ---
 
 # Freshness and Corroboration Audit

@@ -1,6 +1,7 @@
 ---
 name: semantic-integrity-audit
 description: Audits semantic integrity and attribute ownership to detect category confusion and cross-product attribute contamination.
+allowed-tools: []
 ---
 
 # Semantic Integrity Audit

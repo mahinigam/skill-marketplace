@@ -1,6 +1,7 @@
 ---
 name: semantic-structure-audit
 description: Audits JSON-LD structured data and schema.org usage to ensure important entities and facts are machine-readable and consistent with visible text.
+allowed-tools: []
 ---
 
 # Semantic Structure Audit

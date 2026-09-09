@@ -5,7 +5,7 @@ from typing import List
 # Ensure we can import shared
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation
+from shared.models.models import AuditContext, Finding, EvidenceItem, ActionRecommendation, FindingCategory
 from shared.utilities.crawler import SiteCrawler
 
 def run_audit(context: AuditContext, crawler: SiteCrawler) -> AuditContext:

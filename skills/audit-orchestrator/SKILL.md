@@ -1,6 +1,7 @@
 ---
 name: audit-orchestrator
 description: The main entrypoint for the AI Readiness Intelligence Engine. Coordinates the execution of all other audit skills, merges findings, correlates root causes, scores severity, and generates the final reports.
+allowed-tools: []
 ---
 
 # Audit Orchestrator
