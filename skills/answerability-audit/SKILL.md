@@ -2,6 +2,7 @@
 name: answerability-audit
 description: Evaluates if a machine could construct a correct answer to an important user question from the available page evidence without guessing.
 allowed-tools: []
+license: MIT
 ---
 
 # Answerability Audit

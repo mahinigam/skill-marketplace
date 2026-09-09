@@ -2,6 +2,7 @@
 name: opportunity-engine
 description: Generates proactive recommendations to improve AI discoverability and engagement, even when explicit defects are absent.
 allowed-tools: []
+license: MIT
 ---
 
 # Opportunity Engine

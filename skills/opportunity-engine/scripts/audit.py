@@ -57,8 +57,7 @@ def _check_comparison_opportunity(html_cache: dict, context: AuditContext) -> li
                     has_review_data = True
                     break
         
-        text = extract_visible_text(html)
-        if not has_review_data and ('review' not in text.lower() and 'rating' not in text.lower()):
+        if not has_review_data:
             product_pages_without_reviews.append(url)
     
     if product_pages_without_reviews:
@@ -193,17 +192,90 @@ def _check_sameas_opportunity(html_cache: dict, context: AuditContext) -> list:
     return opportunities
 
 
+def _check_site_search_opportunity(html_cache: dict, context: AuditContext) -> list:
+    """Detect missing WebSite schema with SearchAction."""
+    opportunities = []
+    has_search = False
+    
+    for url, html in html_cache.items():
+        json_ld = extract_json_ld(html)
+        for block in json_ld:
+            if block.get('@type') == 'WebSite' and 'potentialAction' in block:
+                action = block['potentialAction']
+                if isinstance(action, dict) and action.get('@type') == 'SearchAction':
+                    has_search = True
+                    break
+                    
+    if not has_search:
+        opportunities.append(Opportunity(
+            id="OPP-006",
+            title="Enable AI Search Routing with WebSite SearchAction",
+            description="AI agents often route user queries directly into site search endpoints if explicitly defined. Missing this schema reduces direct deep-linking capabilities.",
+            evidence=[EvidenceItem(source_type="json_ld", url=context.target.url, detail="No WebSite schema with SearchAction found.")],
+            confidence=0.9,
+            impact="medium",
+            priority="P2",
+            suggested_action=ActionRecommendation(
+                summary="Add WebSite JSON-LD with a SearchAction to the homepage.",
+                priority="P2",
+                implementation="Add schema.org/WebSite to your homepage, defining 'potentialAction' of type 'SearchAction' with your site's search URL template.",
+                verification="Verify homepage JSON-LD includes a valid SearchAction.",
+                effort="low",
+                expected_impact="medium"
+            )
+        ))
+    return opportunities
+
+
+def _check_contact_opportunity(html_cache: dict, context: AuditContext) -> list:
+    """Detect Organization missing ContactPoint."""
+    opportunities = []
+    org_found = False
+    has_contact = False
+    
+    for url, html in html_cache.items():
+        json_ld = extract_json_ld(html)
+        for block in json_ld:
+            if block.get('@type') in ['Organization', 'Corporation', 'LocalBusiness', 'Brand']:
+                org_found = True
+                if 'contactPoint' in block:
+                    has_contact = True
+                    break
+                    
+    if org_found and not has_contact:
+        opportunities.append(Opportunity(
+            id="OPP-007",
+            title="Expose Customer Support info via ContactPoint Schema",
+            description="AI assistants often answer 'How do I contact X?' queries. Without ContactPoint schema, AI may guess wrong numbers from scraped directories.",
+            evidence=[EvidenceItem(source_type="json_ld", url=context.target.url, detail="Organization schema exists but lacks contactPoint array.")],
+            confidence=0.85,
+            impact="high",
+            priority="P2",
+            suggested_action=ActionRecommendation(
+                summary="Add contactPoint details to Organization schema.",
+                priority="P2",
+                implementation="Include phone numbers, email addresses, and contact types (e.g. 'customer support') in the contactPoint array.",
+                verification="Verify Organization JSON-LD includes a valid contactPoint.",
+                effort="low",
+                expected_impact="high"
+            )
+        ))
+    return opportunities
+
+
 def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     """
     Proactive opportunity detection engine.
     
-    Runs 5 independent detectors that look for improvement opportunities
+    Runs 7 independent detectors that look for improvement opportunities
     beyond explicit defects:
       1. Missing FAQ schema
       2. Missing comparison/review data
       3. Flat content hierarchy
       4. Incomplete product attributes
       5. Missing entity authority links (sameAs)
+      6. Missing Site Search action
+      7. Missing ContactPoint
     """
     all_opportunities = []
     
@@ -212,6 +284,8 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
     all_opportunities.extend(_check_heading_hierarchy_opportunity(html_cache, context))
     all_opportunities.extend(_check_attribute_coverage_opportunity(html_cache, context))
     all_opportunities.extend(_check_sameas_opportunity(html_cache, context))
+    all_opportunities.extend(_check_site_search_opportunity(html_cache, context))
+    all_opportunities.extend(_check_contact_opportunity(html_cache, context))
     
     context.opportunities.extend(all_opportunities)
     return context

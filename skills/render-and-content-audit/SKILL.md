@@ -2,6 +2,7 @@
 name: render-and-content-audit
 description: Compares initial HTML with JS-rendered expectations to identify content only available after client-side hydration, which may be missed by AI assistants.
 allowed-tools: []
+license: MIT
 ---
 
 # Render and Content Audit

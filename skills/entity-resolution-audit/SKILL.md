@@ -2,6 +2,7 @@
 name: entity-resolution-audit
 description: Analyzes brand, organization, and product names across the website to detect entity ambiguity or inconsistent identity signals.
 allowed-tools: []
+license: MIT
 ---
 
 # Entity Resolution Audit

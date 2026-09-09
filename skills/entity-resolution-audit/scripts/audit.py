@@ -39,14 +39,23 @@ def run_audit(context: AuditContext, html_cache: dict) -> AuditContext:
             h1 = soup.find('h1')
             h1_text = h1.get_text(strip=True) if h1 else ""
             
-            # Simple heuristic: "Page Title | Brand Name"
+            # Tight heuristic: "Page Title | Brand Name" or logo alt text.
+            # Do NOT fallback to H1, as H1 is often a tagline (e.g. "Command your craft").
             name_candidate = None
             if "|" in title:
-                name_candidate = title.split("|")[-1].strip()
+                cand = title.split("|")[-1].strip()
+                if len(cand.split()) <= 4:
+                    name_candidate = cand
             elif "-" in title:
-                name_candidate = title.split("-")[-1].strip()
-            elif h1_text:
-                name_candidate = h1_text
+                cand = title.split("-")[-1].strip()
+                if len(cand.split()) <= 4:
+                    name_candidate = cand
+            
+            if not name_candidate:
+                logo = soup.find('img', alt=True)
+                if logo and ('logo' in logo.get('class', []) or 'logo' in logo.get('src', '').lower()):
+                    if logo['alt'] and len(logo['alt'].split()) <= 4:
+                        name_candidate = logo['alt'].replace('Logo', '').replace('logo', '').strip()
                 
             if name_candidate:
                 if name_candidate not in orgs_found:
