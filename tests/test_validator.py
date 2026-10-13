@@ -50,7 +50,8 @@ class MarketplaceValidatorTests(unittest.TestCase):
         first = self.add_skill()
         second = dict(first)
         second["path"] = "skills/duplicate"
-        self.add_skill(path="skills/duplicate")
+        second["entrypoint"] = False
+        self.add_skill(skill_id="duplicate", path="skills/duplicate")
         self.write_manifest([first, second])
         self.assertFalse(self.validate_quietly())
 
